@@ -5,10 +5,10 @@ const weatherRoutes = Router();
 
 /**
  * @swagger
- * /weather/:
+ * /weather/{city}:
  *   get:
  *     summary: Retorna informações climáticas de uma cidade.
- *     description: Faz uma requisição externa para obter dados meteorológicos de uma cidade passada como query param.
+ *     description: Faz uma requisição externa para obter dados meteorológicos de uma cidade passada como parâmetro na URL.
  *     parameters:
  *       - in: path
  *         name: city
@@ -38,6 +38,7 @@ const weatherRoutes = Router();
  *       500:
  *         description: Erro ao buscar os dados do clima.
  */
+
 weatherRoutes.get('/:city', getWeatherByCity);
 
 export default weatherRoutes;
