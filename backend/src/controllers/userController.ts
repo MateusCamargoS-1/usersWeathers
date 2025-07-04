@@ -1,31 +1,28 @@
 import { Request, Response } from "express";
-import connectDB from "../database/db";
+import db from "../database/db";
 import { v4 as uuidv4 } from "uuid";
 
 export const createUser = async (req: Request, res: Response) => {
   const { name, email } = req.body;
 
   if (!name || !email) {
-    res.status(400).json({ message: "Nome e email são obrigatórios" });
-    return;
+    return res.status(400).json({ message: "Nome e email são obrigatórios" });
   }
 
   try {
-    const connection = await connectDB();
     const id = uuidv4();
 
-    await connection.execute(
+    await db.execute(
       "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
       [id, name, email]
     );
 
-    res.status(201).json({ id, name, email });
+    return res.status(201).json({ id, name, email });
   } catch (error: any) {
     if (error.code === "ER_DUP_ENTRY") {
-      res.status(409).json({ message: "Email já cadastrado." });
-    } else {
-      res.status(500).json({ message: "Erro interno.", error: error.message });
+      return res.status(409).json({ message: "Email já cadastrado." });
     }
+    return res.status(500).json({ message: "Erro interno.", error: error.message });
   }
 };
 
@@ -35,60 +32,44 @@ export const getUsers = async (req: Request, res: Response) => {
   const pageNumber = parseInt(page as string, 10);
   const limitNumber = parseInt(limit as string, 10);
 
-  if (
-    isNaN(pageNumber) ||
-    pageNumber < 1 ||
-    isNaN(limitNumber) ||
-    limitNumber < 1
-  ) {
-    res.status(400).json({
+  if (isNaN(pageNumber) || pageNumber < 1 || isNaN(limitNumber) || limitNumber < 1) {
+    return res.status(400).json({
       message: "Parâmetros page e limit devem ser números maiores que zero.",
     });
-    return;
   }
 
   try {
-    const connection = await connectDB();
-
-    let query = "SELECT id, name, email FROM users WHERE 1=1";
-    const params: any[] = [];
+    const filters: string[] = [];
+    const values: any[] = [];
 
     if (name) {
-      query += " AND name LIKE ?";
-      params.push(`${name}%`);
+      filters.push("name LIKE ?");
+      values.push(`${name}%`);
     }
 
     if (email) {
-      query += " AND email LIKE ?";
-      params.push(`${email}%`);
+      filters.push("email LIKE ?");
+      values.push(`${email}%`);
     }
 
+    const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
     const offset = (pageNumber - 1) * limitNumber;
-    query += " LIMIT ? OFFSET ?";
-    params.push(limitNumber, offset);
 
-    const [rows] = await connection.execute(query, params);
+    values.push(limitNumber.toString(), offset.toString());
 
-    let countQuery = "SELECT COUNT(1) as total FROM users WHERE 1=1";
-    const countParams: any[] = [];
+    const sql = `
+      SELECT SQL_CALC_FOUND_ROWS id, name, email
+      FROM users
+      ${whereClause}
+      LIMIT ? OFFSET ?
+    `;
 
-    if (name) {
-      countQuery += " AND name LIKE ?";
-      countParams.push(`${name}%`);
-    }
+    const [rows]: [any[], any] = await db.execute(sql, values);
 
-    if (email) {
-      countQuery += " AND email LIKE ?";
-      countParams.push(`${email}%`);
-    }
+    const [countRows]: [any[], any] = await db.query("SELECT FOUND_ROWS() AS total");
+    const total = countRows[0].total as number;
 
-    const [countResult]: any = await connection.execute(
-      countQuery,
-      countParams
-    );
-    const total = countResult[0].total;
-
-    res.json({
+    return res.json({
       data: rows,
       pagination: {
         total,
@@ -98,8 +79,8 @@ export const getUsers = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error("Erro:", error);
-    res.status(500).json({ message: "Erro ao buscar usuários." });
+    console.error("Erro ao buscar usuários:", error);
+    return res.status(500).json({ message: "Erro ao buscar usuários." });
   }
 };
 
@@ -107,22 +88,17 @@ export const getUserById = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
-    const connection = await connectDB();
-    const [rows] = await connection.execute(
-      "SELECT * FROM users WHERE id = ?",
-      [id]
-    );
-
-    const user = Array.isArray(rows) ? rows[0] : null;
+    const [rows]: [any[], any] = await db.execute("SELECT * FROM users WHERE id = ?", [id]);
+    const user = rows[0];
 
     if (!user) {
-      res.status(404).json({ message: "Usuário não encontrado." });
-      return;
+      return res.status(404).json({ message: "Usuário não encontrado." });
     }
 
-    res.json(user);
+    return res.json(user);
   } catch (error) {
-    res.status(500).json({ message: "Erro ao buscar usuário." });
+    console.error("Erro ao buscar usuário:", error);
+    return res.status(500).json({ message: "Erro ao buscar usuário." });
   }
 };
 
@@ -131,28 +107,20 @@ export const updateUser = async (req: Request, res: Response) => {
   const { name } = req.body;
 
   if (!name) {
-    res.status(400).json({ message: "Nome são obrigatórios." });
-    return;
+    return res.status(400).json({ message: "Nome é obrigatório." });
   }
 
   try {
-    const connection = await connectDB();
-
-    const [result]: any = await connection.execute(
-      "UPDATE users SET name = ? WHERE id = ?",
-      [name, id]
-    );
+    const [result]: any = await db.execute("UPDATE users SET name = ? WHERE id = ?", [name, id]);
 
     if (result.affectedRows === 0) {
-      res.status(404).json({ message: "Usuário não encontrado." });
-      return;
+      return res.status(404).json({ message: "Usuário não encontrado." });
     }
 
-    res.json({ id, name });
+    return res.json({ id, name });
   } catch (error: any) {
-    res
-      .status(500)
-      .json({ message: "Erro ao atualizar usuário.", error: error.message });
+    console.error("Erro ao atualizar usuário:", error);
+    return res.status(500).json({ message: "Erro ao atualizar usuário.", error: error.message });
   }
 };
 
@@ -160,20 +128,15 @@ export const deleteUser = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
-    const connection = await connectDB();
-
-    const [result]: any = await connection.execute(
-      "DELETE FROM users WHERE id = ?",
-      [id]
-    );
+    const [result]: any = await db.execute("DELETE FROM users WHERE id = ?", [id]);
 
     if (result.affectedRows === 0) {
-      res.status(404).json({ message: "Usuário não encontrado." });
-      return;
+      return res.status(404).json({ message: "Usuário não encontrado." });
     }
 
-    res.json({ message: "Usuário deletado com sucesso." });
+    return res.json({ message: "Usuário deletado com sucesso." });
   } catch (error) {
-    res.status(500).json({ message: "Erro ao deletar usuário." });
+    console.error("Erro ao deletar usuário:", error);
+    return res.status(500).json({ message: "Erro ao deletar usuário." });
   }
 };
